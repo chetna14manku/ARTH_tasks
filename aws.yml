@@ -1,0 +1,85 @@
+---
+- hosts: localhost
+  gather_facts: no
+  vars_files:
+       - aws-secret.yml
+  tasks:
+  - name: Install Python
+    package: 
+          name: python3
+          state: present
+
+  - name: Install boto3 module
+    pip:
+          name: boto3
+
+          #- name: Create EC2 key
+          #ec2_key:
+          #name: "key11"
+          #region: "ap-south-1"
+          #state: "present"
+          #aws_access_key: "{{ accesskey }}"
+          #aws_secret_key: "{{ secretkey }}"
+          #register: ec2key
+
+  
+          #- name: Save Private Key
+          #copy:
+          #content: "{{ ec2key.key.private_key }}"
+          #dest: "/root/playbook/key11.pem"
+          #mode: 0600
+
+  - name: Provioning EC2 instance for Kube-Master
+    ec2:  
+          image: "ami-0bcf5425cdc1d8a85"
+          instance_type: "t2.micro"
+          region: "ap-south-1"
+          key_name: "key11"
+          vpc_subnet_id: "subnet-a9272ec1"
+          wait: yes 
+          count: 1
+          instance_tags:
+               Name: "Kube-Master"
+          assign_public_ip: yes
+          group_id: "sg-0345d7ce67f7ce2a0"
+          state: "present"
+          aws_access_key: "{{ accesskey }}"
+          aws_secret_key: "{{ secretkey }}"
+    register: ec11
+
+
+  - name: Provioning EC2 instance for Kube-Slave
+    ec2:
+          image: "ami-0bcf5425cdc1d8a85"
+          instance_type: "t2.micro"
+          region: "ap-south-1"
+          key_name: "key11"
+          vpc_subnet_id: "subnet-a9272ec1"
+          wait: yes
+          count: 2
+          instance_tags:
+               Name: "Kube-Slave"
+          assign_public_ip: yes
+          group_id: "sg-0345d7ce67f7ce2a0"
+          state: "present"
+          aws_access_key: "{{ accesskey }}"
+          aws_secret_key: "{{ secretkey }}"
+    register: ec22
+
+  - name: Add Public IPs of Kube-Master & Kube-Slave to inventory
+    blockinfile:
+            path: "inventory" 
+            block: |
+                   [k8s_cluster:children]
+                   k8s_master
+                   k8s_slave
+                   [k8s_master]
+                   {{ ec11.instances[0].public_ip }}  ansible_user=ec2-user  ansible_ssh_private_key_file=/root/playbook/key11.pem  ansible_connection=ssh
+                   [k8s_slave]
+                   {{ ec22.instances[0].public_ip }}  ansible_user=ec2-user  ansible_ssh_private_key_file=/root/playbook/key11.pem  ansible_connection=ssh
+                   {{ ec22.instances[1].public_ip }}  ansible_user=ec2-user  ansible_ssh_private_key_file=/root/playbook/key11.pem  ansible_connection=ssh
+ 
+
+  - name: Refresh Inventory
+    meta: refresh_inventory
+          

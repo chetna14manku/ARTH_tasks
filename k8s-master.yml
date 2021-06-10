@@ -1,0 +1,186 @@
+---
+- name: Install Kubernetes Softwares on Nodes
+  hosts: k8s_cluster
+  
+  tasks:
+  - name: Install Docker
+    yum:
+            name: docker
+            state: present
+
+  - name: Start Docker
+    service:
+        name: docker
+        state: started
+        enabled: yes
+
+  - name: Create a yum-repository for Kubernetes
+    yum_repository:
+         name: "kubernetes"
+         baseurl: https://packages.cloud.google.com/yum/repos/kubernetes-el7-$basearch
+         enabled: yes
+         #gpgcheck: yes
+         #repo_gpgcheck: yes
+         gpgkey: https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+         description: "kubernetes"
+         exclude:
+            - kubelet 
+            - kubeadm
+            - kubectl
+            
+  - name: Install Kubeadm, Kubectl, Kubelet
+    yum:
+         name:
+                 #- kubelet 
+              - kubeadm
+              - kubectl
+              - kubelet
+         state: present
+         disable_excludes: kubernetes 
+    register: y     
+ 
+  - name: Start Kubelet 
+    service:
+            name: kubelet
+            state: started
+            enabled: yes
+
+  - name: Pulling Images required for Cluster
+    command: "kubeadm config images pull"
+
+  - name: Change Driver of Docker
+    copy:
+           dest: "/etc/docker/daemon.json"
+           content: |
+                  {
+                          "exec-opts": ["native.cgroupdriver=systemd"] 
+                  }
+    register: driver
+
+  - name: Install Networking Traffic Controller
+    yum:
+            name: "iproute-tc"
+            state: "present"
+
+  - name: Setup IP6 Tables
+    copy:
+            dest: "/etc/sysctl.d/k8s.conf"
+            content: |
+                    net.bridge.bridge-nf-call-ip6tables = 1
+                    net.bridge.bridge-nf-call-iptables = 1
+
+  - name: Run Sysctl Command to Update IP6 Tables
+    command: "sysctl --system"
+
+  - name: Restart Docker Service
+    service:
+            name: "docker"
+            state: "restarted"
+
+ 
+
+# Configure Master Node
+- name: Configure Master Node
+  hosts: k8s_master
+
+  tasks:
+          #- name: Pulling Images required for Cluster
+          #command: "kubeadm config images pull"
+
+
+  - name: Start Kubeadm
+    shell: "kubeadm init --pod-network-cidr=10.240.0.0/16 --ignore-preflight-errors=NumCPU --ignore-preflight-errors=Mem"
+
+  - name: Create Directory for Kube Config 
+    file:
+            path: "$HOME/.kube"
+            state: directory
+    register: user
+
+  - name: Print USER
+    debug:
+            var: user
+
+  - name: Copy Admin Config file to Kube Directory
+    #shell: "cp -i /etc/kubernetes/admin.conf  $HOME/.kube/config"
+    copy:
+          remote_src: yes
+          src: "/etc/kubernetes/admin.conf"
+          dest: "$HOME/.kube/config"
+          owner: "{{ user.owner }}"
+          group: "{{ user.group }}"
+
+  - name: Clear Caches
+    shell: "echo 3 > /proc/sys/vm/drop_caches"
+
+  - name: Create Token
+    command: "kubeadm token create --print-join-command"
+    register: token
+
+  - name: Print Token
+    debug:
+            var: token.stdout
+
+  - name: "Add Dummy Variable to Store Token"
+    add_host:
+            name: "dummy_host"
+            tokens: "{{ token.stdout_lines[0] }}"
+ 
+            #- name: Create Directory for Custom Facts
+            #file:
+            #state: directory
+            #path: "/etc/ansible/facts.d"
+            #recurse: yes
+            #- name: Store token as a Custom Fact
+            #copy: 
+            #dest: "/etc/ansible/facts.d/custom.fact" 
+            #content: |
+            #       [general]
+            #       token = {{ token.stdout }}
+            
+
+  - name: Setup Flannel Pod Network
+    command: "kubectl apply  -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml"
+ 
+  - name: Run "kubectl get nodes" Command
+    command: "kubectl get nodes"
+    register: status
+
+
+  - name: Print Status
+    debug:
+            var: status
+
+  - name: Check if Master is Running
+    debug:
+            msg: "Master is Ready"
+    #when status.stdout=hostname 
+
+            #- name: Print Token Fact
+            #debug:
+            #var: "{{ ansible_facts.ansible_local.custom.general.token }}"
+
+      
+# Cofigure Worker Node
+- name: Configure Worker Node
+  hosts: k8s_slave
+
+  tasks:
+  - name: Clear Caches
+    shell: "echo 3 > /proc/sys/vm/drop_caches"
+
+  - name: Print join command
+    debug:
+            msg: "{{ hostvars.dummy_host.tokens }}" 
+
+  
+  - block:
+    - name: Join Worker Node to Cluster
+      #command: "{{ group_vars.k8s_master.0.ansible_facts.ansible_local.custom.general.token }}" 
+      command: "{{ hostvars.dummy_host.tokens }}"
+      register: x
+
+    rescue:
+    - name: Print error
+      debug:
+              var: x
