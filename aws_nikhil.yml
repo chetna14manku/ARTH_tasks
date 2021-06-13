@@ -1,0 +1,62 @@
+# tasks file for k8s_cluster_aws
+- name: "Installing dependencies of AWS"
+  pip:
+    name: boto3
+
+- name: "Launching master instance"
+  ec2_instance:
+    name: 'k8s-master1'
+    key_name: '{{ key_name }}'
+    instance_type: '{{ instance_type }}'
+    network:
+      assign_public_ip: true
+    image_id: '{{ image_id }}'
+    region: '{{ region }}'
+    tags:
+      master: 'k8s-master'
+    aws_access_key: '{{ aws_access_key }}'
+    aws_secret_key: '{{ aws_secret_key }}'
+  register: master_info
+
+- name: "Launching worker node1"
+  ec2_instance:
+    name: 'k8s-worker1'
+    key_name: '{{ key_name }}'
+    instance_type: '{{ instance_type }}'
+    network:
+      assign_public_ip: true
+    image_id: '{{ image_id }}'
+    region: '{{ region }}'
+    tags:
+      master: 'k8s-worker1'
+    aws_access_key: '{{ aws_access_key }}'
+    aws_secret_key: '{{ aws_secret_key }}'
+  register: worker1_info
+
+- name: "Launching worker node2"
+  ec2_instance:
+    name: 'k8s-worker2'
+    key_name: '{{ key_name }}'
+    instance_type: '{{ instance_type }}'
+    network:
+      assign_public_ip: true
+    image_id: '{{ image_id }}'
+    region: '{{ region }}'
+    tags:
+      master: 'k8s-worker2'
+    aws_access_key: '{{ aws_access_key }}'
+    aws_secret_key: '{{ aws_secret_key }}'
+  register: worker2_info
+
+- name: "updating inventory with IP address of nodes"
+  blockinfile:
+    path: /home/playbooks/ansible/inventory
+    block: |
+       [master]
+       {{ master_info.instances[0].public_ip_address }}  ansible_ssh_private_key=/home/playbooks/ansible/New_test.pem
+       [workers]
+       {{ worker1_info.instances[0].public_ip_address }}  ansible_ssh_private_key=/home/playbooks/ansible/New_test.pem
+       {{ worker2_info.instances[0].public_ip_address }}  ansible_ssh_private_key=/home/playbooks/ansible/New_test.pem
+- name: "Pause for instances to run properly"
+  pause:
+    seconds: 20
