@@ -1,0 +1,3 @@
+- name: "Joining worker nodes with the master"
+  command: "{{ hostvars[item]['join_command']['stdout'] }}"
+  with_items: "{{ groups['master'] }}"
