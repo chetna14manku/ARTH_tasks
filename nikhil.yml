@@ -1,0 +1,55 @@
+- name: "Install docker"
+  package:
+    name: 'docker'
+    state: present
+
+- name: "Starting the service of docker"
+  service:
+    name: 'docker'
+    state: started
+    enabled: yes
+
+- name: "Setting up repo for k8s softwares"
+  copy:
+    src: kube.repo
+    dest: /etc/yum.repos.d/kube.repo
+
+- name: "Installing K8s sofware and its dependencies"
+  package:
+    name: '{{ item }}'
+    state: present
+  with_items:
+   - kubeadm
+   - kubectl
+   - kubelet
+   - iproute-tc
+
+- name: "starting service of kubelet"
+  service:
+    name: kubelet
+    state: started
+    enabled: yes
+
+- name: "Updating K8s config file"
+  copy:
+    src: k8s.conf
+    dest: /etc/sysctl.d/k8s.conf
+
+- name: "restarting sysclt"
+  shell: sysctl --system
+
+- name: "Updating docker driver for K8s"
+  copy:
+    dest: /etc/docker/daemon.json
+    src: daemon.json
+
+- name: "Restarting docker service"
+  service:
+    name: docker
+    state: restarted
+
+- include_tasks: master.yml
+  when: inventory_hostname in groups['master']
+
+- include_tasks: worker.yml
+  when: inventory_hostname in groups['workers']
